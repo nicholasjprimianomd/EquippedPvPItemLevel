@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.3.7"
+local ADDON_VERSION = "1.3.8"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -669,6 +669,7 @@ local function GetInspectEquippedAndPvp(unit)
   end
 
   local eq, pvp
+  local inspectApiPvp
   local pvpIsApprox = false
 
   if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel then
@@ -685,7 +686,7 @@ local function GetInspectEquippedAndPvp(unit)
       if apiEq then
         eq = eq or apiEq
       end
-      pvp = pvp or N(pvpIlvl)
+      inspectApiPvp = N(pvpIlvl)
     end
   end
 
@@ -693,12 +694,13 @@ local function GetInspectEquippedAndPvp(unit)
     eq = GetEquippedAverageFromItemLinks(unit)
   end
 
-  if not pvp then
-    local tooltipPvp, tooltipHadPvp = GetPvpAverageFromInventoryTooltips(unit)
-    if tooltipPvp then
-      pvp = tooltipPvp
-      pvpIsApprox = tooltipHadPvp == true
-    end
+  local tooltipPvp, tooltipHadPvp = GetPvpAverageFromInventoryTooltips(unit)
+  local hasPvpGear = tooltipHadPvp == true or UnitQualifiesForPvpIlvlEstimate(unit)
+  if tooltipPvp then
+    pvp = tooltipPvp
+    pvpIsApprox = tooltipHadPvp == true
+  elseif inspectApiPvp and hasPvpGear then
+    pvp = inspectApiPvp
   end
 
   return eq, pvp, pvpIsApprox
