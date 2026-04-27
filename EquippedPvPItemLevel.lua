@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.4.0"
+local ADDON_VERSION = "1.4.1"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -314,176 +314,6 @@ local function GetItemNameById(itemId)
   return name
 end
 
---- Some builds expose one of these on ItemMixin; not all are documented publicly.
-local PVP_ITEM_MIXIN_METHODS = {
-  "IsItemPvPItem",
-  "IsPvPItem",
-  "IsRatedPvpItem",
-  "IsPvpItem",
-}
-
-local function ItemMixinIndicatesPvp(itemLink)
-  if not Item or not itemLink or itemLink == "" then
-    return false
-  end
-  local ok, isPvp = pcall(function()
-    local item = Item:CreateFromItemLink(itemLink)
-    if not item or item.IsItemEmpty and item:IsItemEmpty() then
-      return false
-    end
-    for i = 1, #PVP_ITEM_MIXIN_METHODS do
-      local m = PVP_ITEM_MIXIN_METHODS[i]
-      local fn = item[m]
-      if type(fn) == "function" and fn(item) == true then
-        return true
-      end
-    end
-    return false
-  end)
-  return ok and isPvp == true
-end
-
-local function ItemStatsTableSuggestsPvp(stats)
-  if type(stats) ~= "table" then
-    return false
-  end
-  for k in pairs(stats) do
-    if type(k) == "string" then
-      local l = string.lower(k)
-      if string.find(l, "pvp", 1, true) or string.find(l, "arena", 1, true) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
-local function ItemStatsSuggestPvp(itemLink)
-  if C_Item and C_Item.GetItemStats then
-    local ok, stats = pcall(C_Item.GetItemStats, itemLink)
-    if ok and ItemStatsTableSuggestsPvp(stats) then
-      return true
-    end
-  end
-  if GetItemStats then
-    local ok, stats = pcall(GetItemStats, itemLink)
-    if ok and ItemStatsTableSuggestsPvp(stats) then
-      return true
-    end
-  end
-  return false
-end
-
-local function DetailedItemLevelSuggestsPvp(itemLink)
-  if not C_Item or not C_Item.GetDetailedItemLevelInfo then
-    return false
-  end
-  local ok, t = pcall(C_Item.GetDetailedItemLevelInfo, itemLink)
-  if not ok or type(t) ~= "table" then
-    return false
-  end
-  local eff = N(t.effectiveItemLevel or t.itemLevel or t.currentItemLevel)
-  for k, v in pairs(t) do
-    if type(k) == "string" and type(v) == "number" then
-      local kl = string.lower(k)
-      if string.find(kl, "pvp", 1, true) then
-        local pv = N(v)
-        if pv and ((not eff) or math.abs(pv - eff) > 0.25) then
-          return true
-        end
-      end
-    end
-  end
-  return false
-end
-
---- Tier names that are almost certainly current PvP naming (English); extend for your locale if needed.
-local PVP_NAME_FRAGMENTS_STRICT = {
-  "galactic aspirant",
-  "galactic warmonger",
-  "galactic gladiator",
-  "galactic combatant",
-  "galactic aspirant's",
-  "galactic warmonger's",
-  "galactic gladiator's",
-  "galactic combatant's",
-  "aspirant's heraldry",
-  "gladiator's heraldry",
-  "galactic",
-  "thalassian",
-}
-
---- Also match common English PvP tier words, but only if item expac matches current expansion (avoids old Gladiator xmog).
-local PVP_NAME_FRAGMENTS_BROAD = {
-  "gladiator",
-  "aspirant",
-  "warmonger",
-  "combatant",
-  "drakebreaker",
-}
-
-local function ItemNameHeuristicsSuggestPvp(itemLink)
-  local itemId = ItemLinkToItemId(itemLink)
-  if not itemId then
-    return false
-  end
-  local name = GetItemNameById(itemId)
-  if not name or name == "" then
-    return false
-  end
-  local lower = string.lower(name)
-  for i = 1, #PVP_NAME_FRAGMENTS_STRICT do
-    if string.find(lower, PVP_NAME_FRAGMENTS_STRICT[i], 1, true) then
-      return true
-    end
-  end
-  local expItem = GetItemExpacId(itemId)
-  local expCur = GetCurrentContentExpansionId()
-  if expItem and expCur and expItem == expCur then
-    for i = 1, #PVP_NAME_FRAGMENTS_BROAD do
-      if string.find(lower, PVP_NAME_FRAGMENTS_BROAD[i], 1, true) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
---- True if this item link is likely PvP gear for the ~ ilvl estimate gate (inspect-visible gear only).
-local function ItemIsLikelyPvpGear(itemLink)
-  if not itemLink or itemLink == "" then
-    return false
-  end
-  if ItemMixinIndicatesPvp(itemLink) then
-    return true
-  end
-  if ItemStatsSuggestPvp(itemLink) then
-    return true
-  end
-  if DetailedItemLevelSuggestsPvp(itemLink) then
-    return true
-  end
-  if ItemNameHeuristicsSuggestPvp(itemLink) then
-    return true
-  end
-  return false
-end
-
-local function UnitQualifiesForPvpIlvlEstimate(unit)
-  if not unit or not UnitExists(unit) then
-    return false
-  end
-  for _, slot in ipairs(EQUIPMENT_INVENTORY_SLOTS) do
-    if slot then
-      local link = GetInventoryItemLink(unit, slot)
-      if link and link ~= "" and ItemIsLikelyPvpGear(link) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
 --- Rough mean item level from visible inventory (player or post-inspect unit).
 local function GetEquippedAverageFromItemLinks(unit)
   if not unit or not UnitExists(unit) then
@@ -521,13 +351,8 @@ local function TooltipTextMentionsPvpScaling(lower)
   return string.find(lower, "pvp", 1, true)
     or string.find(lower, "arena", 1, true)
     or string.find(lower, "battleground", 1, true)
+    or string.find(lower, "battlefield", 1, true)
     or string.find(lower, "war mode", 1, true)
-    or string.find(lower, "gladiator", 1, true)
-    or string.find(lower, "combatant", 1, true)
-    or string.find(lower, "challenger", 1, true)
-    or string.find(lower, "rival", 1, true)
-    or string.find(lower, "duelist", 1, true)
-    or string.find(lower, "aspirant", 1, true)
 end
 
 local function ExtractPvpItemLevelFromTooltipText(text)
@@ -565,38 +390,106 @@ local function ExtractNormalItemLevelFromTooltipText(text)
     or N(lower:match("^ilvl%s+(%d+%.?%d*)%s"))
 end
 
-local function GetInventorySlotTooltipInfo(unit, slot)
-  if not C_TooltipInfo or not C_TooltipInfo.GetInventoryItem then
+local function ReadPvpInfoFromTooltipText(rawText, bestPvp, normalIlvl, hasPvpText)
+  local clean = CleanTooltipLineText(rawText)
+  if not clean or clean == "" then
+    return bestPvp, normalIlvl, hasPvpText
+  end
+  local lower = string.lower(clean)
+  if TooltipTextMentionsPvpScaling(lower) then
+    hasPvpText = true
+    local value = ExtractPvpItemLevelFromTooltipText(clean)
+    if value and (not bestPvp or value > bestPvp) then
+      bestPvp = value
+    end
+  else
+    normalIlvl = normalIlvl or ExtractNormalItemLevelFromTooltipText(clean)
+  end
+  return bestPvp, normalIlvl, hasPvpText
+end
+
+local scanTooltip
+
+local function EnsureScanTooltip()
+  if scanTooltip then
+    return scanTooltip
+  end
+  if not CreateFrame then
+    return nil
+  end
+  scanTooltip = CreateFrame("GameTooltip", "EquippedPvPItemLevelScanTooltip", nil, "GameTooltipTemplate")
+  if scanTooltip and scanTooltip.SetOwner then
+    scanTooltip:SetOwner(UIParent or WorldFrame, "ANCHOR_NONE")
+  end
+  return scanTooltip
+end
+
+local function GetHiddenTooltipInventorySlotInfo(unit, slot)
+  local tip = EnsureScanTooltip()
+  if not tip or not tip.SetInventoryItem then
     return nil, nil, false
   end
-  local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
-  if not ok or type(data) ~= "table" or type(data.lines) ~= "table" then
+
+  local ok = pcall(function()
+    if tip.ClearLines then
+      tip:ClearLines()
+    end
+    tip:SetOwner(UIParent or WorldFrame, "ANCHOR_NONE")
+    tip:SetInventoryItem(unit, slot)
+  end)
+  if not ok then
     return nil, nil, false
   end
+
   local bestPvp, normalIlvl, hasPvpText = nil, nil, false
-  for _, line in ipairs(data.lines) do
-    if type(line) == "table" then
-      local texts = { line.leftText, line.rightText }
-      if type(line.leftText) == "string" and type(line.rightText) == "string" then
-        texts[#texts + 1] = line.leftText .. " " .. line.rightText
+  local name = tip.GetName and tip:GetName()
+  local num = tip.NumLines and tip:NumLines() or 0
+  for i = 1, num do
+    local left = name and _G[name .. "TextLeft" .. i]
+    local right = name and _G[name .. "TextRight" .. i]
+    if left and left.GetText then
+      bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(left:GetText(), bestPvp, normalIlvl, hasPvpText)
+    end
+    if right and right.GetText then
+      bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(right:GetText(), bestPvp, normalIlvl, hasPvpText)
+    end
+    if left and right and left.GetText and right.GetText then
+      local l, r = left:GetText(), right:GetText()
+      if type(l) == "string" and type(r) == "string" then
+        bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(l .. " " .. r, bestPvp, normalIlvl, hasPvpText)
       end
-      for _, rawText in ipairs(texts) do
-        local clean = CleanTooltipLineText(rawText)
-        if clean and clean ~= "" then
-          local lower = string.lower(clean)
-          if TooltipTextMentionsPvpScaling(lower) then
-            hasPvpText = true
-            local value = ExtractPvpItemLevelFromTooltipText(clean)
-            if value and (not bestPvp or value > bestPvp) then
-              bestPvp = value
-            end
-          else
-            normalIlvl = normalIlvl or ExtractNormalItemLevelFromTooltipText(clean)
+    end
+  end
+  if tip.Hide then
+    tip:Hide()
+  end
+  return bestPvp, normalIlvl, hasPvpText
+end
+
+local function GetInventorySlotTooltipInfo(unit, slot)
+  local bestPvp, normalIlvl, hasPvpText = nil, nil, false
+
+  if C_TooltipInfo and C_TooltipInfo.GetInventoryItem then
+    local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
+    if ok and type(data) == "table" and type(data.lines) == "table" then
+      for _, line in ipairs(data.lines) do
+        if type(line) == "table" then
+          bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(line.leftText, bestPvp, normalIlvl, hasPvpText)
+          bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(line.rightText, bestPvp, normalIlvl, hasPvpText)
+          if type(line.leftText) == "string" and type(line.rightText) == "string" then
+            bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(line.leftText .. " " .. line.rightText, bestPvp, normalIlvl, hasPvpText)
           end
         end
       end
     end
   end
+  if not hasPvpText then
+    local hiddenPvp, hiddenNormal, hiddenHasPvp = GetHiddenTooltipInventorySlotInfo(unit, slot)
+    bestPvp = bestPvp or hiddenPvp
+    normalIlvl = normalIlvl or hiddenNormal
+    hasPvpText = hiddenHasPvp == true
+  end
+
   return bestPvp, normalIlvl, hasPvpText
 end
 
@@ -621,7 +514,7 @@ local function GetPvpAverageFromInventoryTooltips(unit)
       if pvpIlvl then
         foundPvpScaledSlot = true
       end
-      if hasPvpText or (link and link ~= "" and ItemIsLikelyPvpGear(link)) then
+      if hasPvpText then
         foundPvpGear = true
         if rawget(_G, "EquippedPvPItemLevelSV") and EquippedPvPItemLevelSV.debugVerbose then
           DbgVerbose("PvP gear evidence unit=%s slot=%s pvpIlvl=%s normalIlvl=%s link=%s", tostring(unit), tostring(slot), tostring(pvpIlvl), tostring(normalIlvl), tostring(link))
@@ -741,7 +634,7 @@ local function GetInspectEquippedAndPvp(unit)
   end
 
   local tooltipPvp, tooltipHadPvp, tooltipFoundPvpGear = GetPvpAverageFromInventoryTooltips(unit)
-  local hasPvpGear = tooltipFoundPvpGear == true or tooltipHadPvp == true or UnitQualifiesForPvpIlvlEstimate(unit)
+  local hasPvpGear = tooltipFoundPvpGear == true or tooltipHadPvp == true
   if tooltipPvp then
     pvp = tooltipPvp
     pvpIsApprox = tooltipHadPvp == true
