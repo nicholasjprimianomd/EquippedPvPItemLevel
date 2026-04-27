@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.3.8"
+local ADDON_VERSION = "1.3.9"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -512,6 +512,12 @@ local function TooltipTextMentionsPvpScaling(lower)
     or string.find(lower, "arena", 1, true)
     or string.find(lower, "battleground", 1, true)
     or string.find(lower, "war mode", 1, true)
+    or string.find(lower, "gladiator", 1, true)
+    or string.find(lower, "combatant", 1, true)
+    or string.find(lower, "challenger", 1, true)
+    or string.find(lower, "rival", 1, true)
+    or string.find(lower, "duelist", 1, true)
+    or string.find(lower, "aspirant", 1, true)
 end
 
 local function ExtractPvpItemLevelFromTooltipText(text)
@@ -523,11 +529,10 @@ local function ExtractPvpItemLevelFromTooltipText(text)
   if not TooltipTextMentionsPvpScaling(lower) then
     return nil
   end
-  if not (string.find(lower, "item level", 1, true) or string.find(lower, "ilvl", 1, true)) then
-    return nil
-  end
-
   local value = N(lower:match("item level%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("to%s+item level%s+(%d+%.?%d*)"))
+    or N(lower:match("scales%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("increases%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("ilvl%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("to%s+(%d+%.?%d*)"))
     or N(lower:match("item level%s+(%d+%.?%d*)"))
@@ -535,30 +540,37 @@ local function ExtractPvpItemLevelFromTooltipText(text)
   return value
 end
 
-local function GetInventorySlotPvpItemLevel(unit, slot)
+local function GetInventorySlotPvpInfo(unit, slot)
   if not C_TooltipInfo or not C_TooltipInfo.GetInventoryItem then
-    return nil
+    return nil, false
   end
   local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
   if not ok or type(data) ~= "table" or type(data.lines) ~= "table" then
-    return nil
+    return nil, false
   end
-  local best
+  local best, hasPvpText = nil, false
   for _, line in ipairs(data.lines) do
     if type(line) == "table" then
-      local left = ExtractPvpItemLevelFromTooltipText(line.leftText)
-      local right = ExtractPvpItemLevelFromTooltipText(line.rightText)
-      local combined
+      local texts = { line.leftText, line.rightText }
       if type(line.leftText) == "string" and type(line.rightText) == "string" then
-        combined = ExtractPvpItemLevelFromTooltipText(line.leftText .. " " .. line.rightText)
+        texts[#texts + 1] = line.leftText .. " " .. line.rightText
       end
-      local value = left or right or combined
-      if value and (not best or value > best) then
-        best = value
+      for _, rawText in ipairs(texts) do
+        local clean = CleanTooltipLineText(rawText)
+        if clean and clean ~= "" then
+          local lower = string.lower(clean)
+          if TooltipTextMentionsPvpScaling(lower) then
+            hasPvpText = true
+            local value = ExtractPvpItemLevelFromTooltipText(clean)
+            if value and (not best or value > best) then
+              best = value
+            end
+          end
+        end
       end
     end
   end
-  return best
+  return best, hasPvpText
 end
 
 --- Estimate the unit's PvP average by reading each inspected item tooltip.
@@ -566,15 +578,15 @@ end
 --- normal item level because it does not gain a PvP bump.
 local function GetPvpAverageFromInventoryTooltips(unit)
   if not unit or not UnitExists(unit) then
-    return nil, false
+    return nil, false, false
   end
-  local sum, count, foundPvpScaledSlot = 0, 0, false
+  local sum, count, foundPvpScaledSlot, foundPvpGear = 0, 0, false, false
   for _, slot in ipairs(EQUIPMENT_INVENTORY_SLOTS) do
     if slot then
       local link = GetInventoryItemLink(unit, slot)
       if link and link ~= "" then
         local normalIlvl = LinkEffectiveItemLevel(link)
-        local pvpIlvl = GetInventorySlotPvpItemLevel(unit, slot)
+        local pvpIlvl, hasPvpText = GetInventorySlotPvpInfo(unit, slot)
         local slotIlvl = pvpIlvl or normalIlvl
         if slotIlvl then
           sum = sum + slotIlvl
@@ -582,14 +594,20 @@ local function GetPvpAverageFromInventoryTooltips(unit)
           if pvpIlvl then
             foundPvpScaledSlot = true
           end
+          if hasPvpText or ItemIsLikelyPvpGear(link) then
+            foundPvpGear = true
+          end
         end
       end
     end
   end
-  if count == 0 or not foundPvpScaledSlot then
-    return nil, false
+  if count == 0 then
+    return nil, false, foundPvpGear
   end
-  return sum / count, true
+  if not foundPvpScaledSlot then
+    return nil, false, foundPvpGear
+  end
+  return sum / count, true, foundPvpGear
 end
 
 --- Update scaling factor from your own character only (both values from Blizzard's average-ilvl APIs).
@@ -694,8 +712,8 @@ local function GetInspectEquippedAndPvp(unit)
     eq = GetEquippedAverageFromItemLinks(unit)
   end
 
-  local tooltipPvp, tooltipHadPvp = GetPvpAverageFromInventoryTooltips(unit)
-  local hasPvpGear = tooltipHadPvp == true or UnitQualifiesForPvpIlvlEstimate(unit)
+  local tooltipPvp, tooltipHadPvp, tooltipFoundPvpGear = GetPvpAverageFromInventoryTooltips(unit)
+  local hasPvpGear = tooltipFoundPvpGear == true or tooltipHadPvp == true or UnitQualifiesForPvpIlvlEstimate(unit)
   if tooltipPvp then
     pvp = tooltipPvp
     pvpIsApprox = tooltipHadPvp == true
