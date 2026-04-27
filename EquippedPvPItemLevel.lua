@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.3.9"
+local ADDON_VERSION = "1.4.0"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -399,6 +399,16 @@ end
 
 --- Tier names that are almost certainly current PvP naming (English); extend for your locale if needed.
 local PVP_NAME_FRAGMENTS_STRICT = {
+  "galactic aspirant",
+  "galactic warmonger",
+  "galactic gladiator",
+  "galactic combatant",
+  "galactic aspirant's",
+  "galactic warmonger's",
+  "galactic gladiator's",
+  "galactic combatant's",
+  "aspirant's heraldry",
+  "gladiator's heraldry",
   "galactic",
   "thalassian",
 }
@@ -540,15 +550,30 @@ local function ExtractPvpItemLevelFromTooltipText(text)
   return value
 end
 
-local function GetInventorySlotPvpInfo(unit, slot)
+local function ExtractNormalItemLevelFromTooltipText(text)
+  text = CleanTooltipLineText(text)
+  if not text or text == "" then
+    return nil
+  end
+  local lower = string.lower(text)
+  if TooltipTextMentionsPvpScaling(lower) then
+    return nil
+  end
+  return N(lower:match("^item level%s+(%d+%.?%d*)$"))
+    or N(lower:match("^item level%s+(%d+%.?%d*)%s"))
+    or N(lower:match("^ilvl%s+(%d+%.?%d*)$"))
+    or N(lower:match("^ilvl%s+(%d+%.?%d*)%s"))
+end
+
+local function GetInventorySlotTooltipInfo(unit, slot)
   if not C_TooltipInfo or not C_TooltipInfo.GetInventoryItem then
-    return nil, false
+    return nil, nil, false
   end
   local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
   if not ok or type(data) ~= "table" or type(data.lines) ~= "table" then
-    return nil, false
+    return nil, nil, false
   end
-  local best, hasPvpText = nil, false
+  local bestPvp, normalIlvl, hasPvpText = nil, nil, false
   for _, line in ipairs(data.lines) do
     if type(line) == "table" then
       local texts = { line.leftText, line.rightText }
@@ -562,15 +587,17 @@ local function GetInventorySlotPvpInfo(unit, slot)
           if TooltipTextMentionsPvpScaling(lower) then
             hasPvpText = true
             local value = ExtractPvpItemLevelFromTooltipText(clean)
-            if value and (not best or value > best) then
-              best = value
+            if value and (not bestPvp or value > bestPvp) then
+              bestPvp = value
             end
+          else
+            normalIlvl = normalIlvl or ExtractNormalItemLevelFromTooltipText(clean)
           end
         end
       end
     end
   end
-  return best, hasPvpText
+  return bestPvp, normalIlvl, hasPvpText
 end
 
 --- Estimate the unit's PvP average by reading each inspected item tooltip.
@@ -584,19 +611,20 @@ local function GetPvpAverageFromInventoryTooltips(unit)
   for _, slot in ipairs(EQUIPMENT_INVENTORY_SLOTS) do
     if slot then
       local link = GetInventoryItemLink(unit, slot)
-      if link and link ~= "" then
-        local normalIlvl = LinkEffectiveItemLevel(link)
-        local pvpIlvl, hasPvpText = GetInventorySlotPvpInfo(unit, slot)
-        local slotIlvl = pvpIlvl or normalIlvl
-        if slotIlvl then
-          sum = sum + slotIlvl
-          count = count + 1
-          if pvpIlvl then
-            foundPvpScaledSlot = true
-          end
-          if hasPvpText or ItemIsLikelyPvpGear(link) then
-            foundPvpGear = true
-          end
+      local pvpIlvl, tooltipNormalIlvl, hasPvpText = GetInventorySlotTooltipInfo(unit, slot)
+      local normalIlvl = (link and link ~= "" and LinkEffectiveItemLevel(link)) or tooltipNormalIlvl
+      local slotIlvl = pvpIlvl or normalIlvl
+      if slotIlvl then
+        sum = sum + slotIlvl
+        count = count + 1
+      end
+      if pvpIlvl then
+        foundPvpScaledSlot = true
+      end
+      if hasPvpText or (link and link ~= "" and ItemIsLikelyPvpGear(link)) then
+        foundPvpGear = true
+        if rawget(_G, "EquippedPvPItemLevelSV") and EquippedPvPItemLevelSV.debugVerbose then
+          DbgVerbose("PvP gear evidence unit=%s slot=%s pvpIlvl=%s normalIlvl=%s link=%s", tostring(unit), tostring(slot), tostring(pvpIlvl), tostring(normalIlvl), tostring(link))
         end
       end
     end
