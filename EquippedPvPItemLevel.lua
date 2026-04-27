@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.4.2"
+local ADDON_VERSION = "1.4.3"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -365,11 +365,21 @@ local function ExtractPvpItemLevelFromTooltipText(text)
     return nil
   end
   local value = N(lower:match("item level%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("item level%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("ilvl%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("item level%s+is%s+increased%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("ilvl%s+is%s+increased%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("increases%s+the%s+item level%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("increase%s+the%s+item level%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("increases%s+item level%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
+    or N(lower:match("increase%s+item level%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
     or N(lower:match("to%s+item level%s+(%d+%.?%d*)"))
     or N(lower:match("scales%s+to%s+item level%s+(%d+%.?%d*)"))
+    or N(lower:match("scales%s+to%s+a%s+minimum%s+of%s+(%d+%.?%d*)"))
     or N(lower:match("scales%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("increases%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("increased%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("minimum%s+of%s+(%d+%.?%d*)"))
     or N(lower:match("increases.-item level%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("increased.-item level%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("ilvl%s+to%s+(%d+%.?%d*)"))
