@@ -14,7 +14,7 @@
 ]]
 
 --- Matches ## Version in .toc (GetAddOnMetadata when available).
-local ADDON_VERSION = "1.4.1"
+local ADDON_VERSION = "1.4.2"
 local ADDON_NAME = "EquippedPvPItemLevel"
 
 local EquippedPvPItemLevel = {}
@@ -366,8 +366,12 @@ local function ExtractPvpItemLevelFromTooltipText(text)
   end
   local value = N(lower:match("item level%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("to%s+item level%s+(%d+%.?%d*)"))
+    or N(lower:match("scales%s+to%s+item level%s+(%d+%.?%d*)"))
     or N(lower:match("scales%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("increases%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("increased%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("increases.-item level%s+to%s+(%d+%.?%d*)"))
+    or N(lower:match("increased.-item level%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("ilvl%s+to%s+(%d+%.?%d*)"))
     or N(lower:match("to%s+(%d+%.?%d*)"))
     or N(lower:match("item level%s+(%d+%.?%d*)"))
@@ -472,6 +476,9 @@ local function GetInventorySlotTooltipInfo(unit, slot)
   if C_TooltipInfo and C_TooltipInfo.GetInventoryItem then
     local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
     if ok and type(data) == "table" and type(data.lines) == "table" then
+      if TooltipUtil and TooltipUtil.SurfaceArgs then
+        pcall(TooltipUtil.SurfaceArgs, data)
+      end
       for _, line in ipairs(data.lines) do
         if type(line) == "table" then
           bestPvp, normalIlvl, hasPvpText = ReadPvpInfoFromTooltipText(line.leftText, bestPvp, normalIlvl, hasPvpText)
@@ -483,11 +490,11 @@ local function GetInventorySlotTooltipInfo(unit, slot)
       end
     end
   end
-  if not hasPvpText then
+  if not bestPvp then
     local hiddenPvp, hiddenNormal, hiddenHasPvp = GetHiddenTooltipInventorySlotInfo(unit, slot)
     bestPvp = bestPvp or hiddenPvp
     normalIlvl = normalIlvl or hiddenNormal
-    hasPvpText = hiddenHasPvp == true
+    hasPvpText = hasPvpText or hiddenHasPvp == true
   end
 
   return bestPvp, normalIlvl, hasPvpText
@@ -694,9 +701,12 @@ local function RequestInspectIfNeeded(unit)
   end
 
   local eqNow, pvpNow, approxNow = GetInspectEquippedAndPvp(unit)
-  if eqNow then
+  if eqNow and pvpNow then
     SetCached(guid, eqNow, pvpNow, approxNow)
     return
+  end
+  if eqNow then
+    SetCached(guid, eqNow, nil, false)
   end
 
   if not CanThrottleInspect(guid) then
